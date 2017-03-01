@@ -55,7 +55,7 @@ def get_good_turing_orig(freq_model):
 	count_orig = defaultdict(int)
 	for _, v in raw_count_dict.iteritems():
 		if 0 < v < 7: count_orig[int(v)] += 1
-	count_orig[0] = count_orig[1]
+	count_orig[0] = 1
 	count_turing = {}
 	for i in xrange(6):
 		count_turing[i] = (i+1)*count_orig[i+1]/(count_orig[i]*1.0)
@@ -161,7 +161,7 @@ class BigramModel:
 				if curr_word in rare_set: curr_word = self.rare_word
 				self.bigram_dict[last_word][curr_word] += 1
 		# build the logprob dictionary
-		self.v_size = len(fq_dict)-len(rare_set)
+		self.v_size = len(fq_dict)-len(rare_set)+1
 		self.logp_dict = defaultdict(dict)
 		for prior in self.bigram_dict.keys():
 			condi_sum = sum(self.bigram_dict[prior].values())+self.smoothing*self.v_size
@@ -206,11 +206,75 @@ def srilm_bigram_models(input_file,output_dir):
 
 # 4.2
 
+## do not return, just print at console is okay. 
 def srilm_ppl(model_file, raw_text):
 	sent = sent_tokenize(raw_text)
 	with codecs.open('test.txt','w+','utf-8') as f:
 		f.write('\n'.join(sent))
-	return os.system("/home1/c/cis530/srilm/ngram -lm "+model_file+" -ppl test.txt > perplexity.txt")
-						
+	os.system("/home1/c/cis530/srilm/ngram -lm "+model_file+" -ppl test.txt")
+		
+# cloze perplexity scores		
+def output_ppl(model_dir, input_file):
+	temp = 'tempfile.txt'
+	models = os.listdir(model_dir)
+	models = [model_dir+'/'+m for m in models]
+	modelnames = [os.path.basename(model_file) for model_file in models] 
+	output_files = ['cloze/res_'+model for model in modelnames]
+	with codecs.open(input_file, 'rU', 'utf-8') as f_r:	
+		for para in f_r: 
+				res = [line for line in sent_tokenize(para)]
+				with codecs.open(temp, 'w+', 'utf-8') as f_w: 
+					f_w.write('\n'.join(res)) 
+				for i in xrange(len(models)):
+					os.system("/home1/c/cis530/srilm/ngram -lm "+models[i]+" -ppl tempfile.txt >> "+output_files[i])
+
+# extract scores 
+def extract_scores(input_dir):
+	output = 'scores_agg.txt'
+	output_cal = 'test.txt'
+	score_names = os.listdir(input_dir)
+	score_files = [input_dir+'/'+f for f in score_names]
+	models = [('cancer', 100) , ('obesity',50), ('nytimes', 1)]
+	ss_weights = []
+	print score_names
+	for s in score_names:
+		for m, w in models:
+			if s.find(m) != -1: 
+				ss_weights.append(w)
+				break 
+	res, agg, final = [], [], []
+	for score_f in score_files:
+		scores = []
+		with codecs.open(score_f, 'rU', 'utf-8') as f_r:
+			print score_f
+			for line in f_r:
+				marker = line.rfind('=')
+				if marker != -1: scores.append(float(line[marker+1:]))
+		res.append(scores)
+	para_scores = [[] for i in xrange(83)]
+	print len(para_scores)
+	for i in xrange(len(res[0])):
+		for j in xrange(len(res)):			
+			para_scores[i].append(res[j][i])
+	print 
+	with codecs.open(output, 'w+', 'utf-8') as f_w:
+		print 'agg'
+		f_w.write(', '.join(score_names)+'\n')
+		f_w.write('\n'.join([', '.join([str(s) for s in p]) for p in para_scores]))
+	weighted_para = []
+	for p in para_scores:
+		all_s = sum(p)
+		res = [s/all_s for s in p]
+		weighted_para.append(res)
+	read_score = []
+	print ss_weights, score_names
+	for i in xrange(len(weighted_para)):
+		weighted_p = [ss_weights[i]/s for i, s in enumerate(weighted_para[i])]
+		read_score.append(sum(weighted_p))
+	with codecs.open(output_cal, 'w+', 'utf-8') as f_w:
+		print 'final'
+		f_w.write('\n'.join(str(s) for s in read_score))
+
+
 
 
