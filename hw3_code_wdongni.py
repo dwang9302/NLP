@@ -247,6 +247,163 @@ def extract_dependencies(xml_dir_path):
 	return attr_list
 
 
+# 6.2 
+
+def map_dependencies(xml_filename, dependency_list):
+	""" Get a representation that indicates the fraction of a given type of 
+		dependency for the entire text.
+
+	Args: 
+	    xml_filename: a string representing the name of a XML file that may 
+			contain elements with tags in the entity_list.
+		dependency_list: a list of dependency types. 
+
+	Returns: 
+		A list of the same length as dependency list. Each element in the 
+		output list takes the value of the number of times the corresponding 
+		dependency in dependency list appeared in the XML input file normalized
+		by the number of all dependencies in the text.
+	"""
+
+	num_deps = 0
+	deps_cnt_dict = defaultdict(int)
+	elem_name, attr_name = "dep", "type"
+	basic_flag_s, basic_flag_t ="<basic-dependencies>", "</basic-dependencies>"
+	basic_flag = False
+	start_tag, end_tag = "<"+elem_name+" "+attr_name+"=\"", "\">"
+	tag_len = len(start_tag)
+	with codecs.open(xml_filename, 'rU', 'utf-8') as f:
+		for line in f:
+			if basic_flag_s in line: basic_flag = True
+			if basic_flag_t in line: basic_flag = False
+			if not basic_flag: continue 
+			if "</dep>" in line: num_deps += 1
+			index_s, index_t = line.find(start_tag), line.find(end_tag)
+			if index_s < 0: continue
+			text_elem = line[index_s+tag_len:index_t]
+			deps_cnt_dict[text_elem] += 1
+	return [deps_cnt_dict[dep]*1.0/num_deps for dep in dependency_list]
+
+
+# 7.1
+class Prod_tree: 
+	""" Data structure for each node in the constructed tree and its functions
+	 	for extracting production rules.
+
+
+    	Attributes:
+        	root: A string representing the value of a tree node. None 
+        		represents an empty tree or a terminal node (lexical leaf). 
+        	children: A list of Prod_tree. An empty list means that the node 
+        		only has a terminal node as the only child. 
+	"""
+
+	def __init__(self):
+		""" Inits the Prod_tree
+		"""
+		self.root = None
+		self.children = []
+
+	def parse(self, tree_str):
+		""" Parse the tree_str recursively. May add child to the self.children
+
+		Returns: 
+			A string that has left to be parsed because the parsing has reached
+			a terminal node. Notice if a terminal node has multiple ")", each
+			parse takes out only one.
+
+		Raises:
+			ValueError: An error occurs if tree_str is not well-formatted. 
+		""" 
+		if not tree_str: return 
+
+		if tree_str[0] == "(": # start of a non-terminal node 
+			tree_splits = tree_str.split(" ", 1)
+			self.root = tree_splits[0][1:]
+			return self.parse_children(tree_splits[1])
+		else:
+			brack_i = tree_str.find(")")
+			if brack_i < 0: raise ValueError, "Formatting Error"
+			return tree_str[brack_i+1:]
+
+	def parse_children(self, children_str):
+		""" Parse the children_str
+
+		Returns:
+			A string that has left to be parsed because the parsing has reached
+			a terminal node. Notice if a terminal node has multiple ")", each
+			parse takes out only one.
+		"""
+		while children_str:
+			# print self.root, "\t sub ", children_str
+			if children_str[0] == ")": # signals the end of parsing on a node
+				return children_str[1:]
+			elif children_str[0] == " ":
+				children_str = children_str[1:]
+			child_node = Prod_tree()
+			try:
+				children_str = child_node.parse(children_str)
+
+			except ValueError:
+				# print "Node " + self.root + "Parse Error."
+				return
+			if child_node.root: 
+				self.children.append(child_node)
+			else: # child is terminal, just stop 
+				# print "returned to root ", self.root, children_str
+				return children_str
+			# print "next-round: ", children_str
+
+	def extract_rules(self):
+		""" Extract production rules, recursively
+
+		Returns:
+			A set of production rules, sorted alphabetically.
+		"""
+		if not self.children: return set()
+		rules_set = set()
+		my_rule_list = [self.root]+[c.root for c in self.children]
+		my_rule = "_".join(my_rule_list)
+		rules_set.add(my_rule)
+		for c in self.children:
+			rules_set |= c.extract_rules()
+		return rules_set			
+
+
+def extract_prod_rules(xml_dir_path):
+	""" Extract all the unique syntactic production rules for the parse trees 
+		from all documents in xml_directory.
+
+	Args:
+		xml_dir_path: a string representing the path to the xml_directory 
+			that have XML files extracted by CoreNLP.
+
+	Returns:
+		A list of unique production rules, sorted alphabetically.
+	"""
+
+
+	unique_rules = set()
+	xml_files = os.listdir(xml_dir_path)
+	elem_name = "parse"
+	start_tag, end_tag = "<"+elem_name+">", "</"+elem_name+">"
+	tag_len = len(start_tag)
+	for xml_filename in xml_files:
+		with codecs.open(xml_dir_path+"/"+xml_filename, 'rU', 'utf-8') as f:
+			for line in f:
+				index_s, index_t = line.find(start_tag), line.find(end_tag)
+				if index_s < 0: continue
+				text_elem = line[index_s+tag_len:index_t]
+				root_node = Prod_tree()
+				root_node.parse(text_elem)
+				unique_rules |= root_node.extract_rules()
+	rule_list = list(unique_rules)
+	rule_list.sort()
+	return rule_list
+
+	
+
+
 
 
 
