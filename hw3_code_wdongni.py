@@ -67,7 +67,7 @@ def map_tags(xml_filename, elem_list, elem_name):
 	""" Get the feature vector in the feature space of the elem_list
 
 	Args:
-	    xml_filename: a string representing the name of a XML file that may 
+	    xml_filename: a string representing the path of a XML file that may 
 			contain elements with tags in the elem_list.
 		elem_list: a list of elements names. 
 		elem_name: the name of the text elements that have the elem_name as 
@@ -134,7 +134,7 @@ def map_pos_tags(xml_filename, pos_tag_list):
 	""" Get the feature vector in the feature space of the pos_tag_list
 
 	Args:
-	    xml_filename: a string representing the name of a XML file that may 
+	    xml_filename: a string representing the path of a XML file that may 
 			contain elements with tags in the pos_tag_list.
 		pos_tag_list: a list of known POS tags. 
 
@@ -197,7 +197,7 @@ def map_named_entity_tags(xml_filename, entity_list):
 	""" Get the feature vector in the feature space of the entity_list
 
 	Args:
-	    xml_filename: a string representing the name of a XML file that may 
+	    xml_filename: a string representing the path of a XML file that may 
 			contain elements with tags in the entity_list.
 		entity_list: a list of named entity classes. 
 
@@ -286,16 +286,17 @@ def map_dependencies(xml_filename, dependency_list):
 
 
 # 7.1
-class Prod_tree: 
+
+class ProdTree: 
 	""" Data structure for each node in the constructed tree and its functions
 	 	for extracting production rules.
 
 
-    	Attributes:
-        	root: A string representing the value of a tree node. None 
-        		represents an empty tree or a terminal node (lexical leaf). 
-        	children: A list of Prod_tree. An empty list means that the node 
-        		only has a terminal node as the only child. 
+    Attributes:
+       	root: A string representing the value of a tree node. None 
+       		represents an empty tree or a terminal node (lexical leaf). 
+       	children: A list of Prod_tree. An empty list means that the node 
+        	only has a terminal node as the only child. 
 	"""
 
 	def __init__(self):
@@ -340,7 +341,7 @@ class Prod_tree:
 				return children_str[1:]
 			elif children_str[0] == " ":
 				children_str = children_str[1:]
-			child_node = Prod_tree()
+			child_node = ProdTree()
 			try:
 				children_str = child_node.parse(children_str)
 
@@ -394,21 +395,102 @@ def extract_prod_rules(xml_dir_path):
 				index_s, index_t = line.find(start_tag), line.find(end_tag)
 				if index_s < 0: continue
 				text_elem = line[index_s+tag_len:index_t]
-				root_node = Prod_tree()
+				root_node = ProdTree()
 				root_node.parse(text_elem)
 				unique_rules |= root_node.extract_rules()
 	rule_list = list(unique_rules)
 	rule_list.sort()
 	return rule_list
 
+# 7.2
+
+def map_prod_rules(xml_filename, rules_list):
+	""" Get the feature vector in the feature space of the rules_list
+
+	Args:
+	    xml_filename: a string representing the path of a XML file that may 
+			contain elements with tags in the rules_list.
+		rules_list: a list of production rules from 7.1.
+
+	Returns:
+	    A list of integers with the same size as rules_list. Each element
+	    in the returned list represents existence of the corresponding rule
+	"""
+
+	file_rules = set()
+	elem_name = "parse"
+	start_tag, end_tag = "<"+elem_name+">", "</"+elem_name+">"
+	tag_len = len(start_tag)
+	with codecs.open(xml_filename, 'rU', 'utf-8') as f:
+		for line in f:
+			index_s, index_t = line.find(start_tag), line.find(end_tag)
+			if index_s < 0: continue
+			text_elem = line[index_s+tag_len:index_t]
+			root_node = ProdTree()
+			root_node.parse(text_elem)
+			file_rules |= root_node.extract_rules()
+	return [ 1 if rule in file_rules else 0 for rule in rules_list]
+
+# 8
+
+def get_generate_cluster_tables(brown_file_path):
+	""" Generate cluster_code_list and word_cluster_mapping.
 	
+	Args:
+		brown_file_path: a string representing the path to the brown cluster
+			file. 
+
+	Returns:
+		A tuple of (cluster_code_list, word_cluster_mapping) defined below. 
+	"""
+	raw_brown = read_to_list(brown_file_path)
+	cluster_code_set = set()
+	word_cluster_mapping = {}
+	for raw_line in raw_brown:
+		line_segs = raw_line.split("\t")
+		cluster_code_set.add(line_segs[0])
+		word_cluster_mapping[line_segs[1]] = line_segs[0]
+	return (list(cluster_code_set)+[u'8888'], word_cluster_mapping)
 
 
+def map_brown_clusters(xml_file_path, cluster_code_list, word_cluster_mapping):
+	""" Produce a representation that reflects the normalized frequency of 
+		each known Brown cluster in the given text. For words that do not 
+		appear in the precomputed Brown clusters, their code should be 8888.
+
+	Args:
+		xml_file_path: a string representing the path to the a XML file that is
+			extracted by CoreNLP.
+		cluster_code_list: a list of unique cluster names/codes present in 
+			cluster file.
+		word_cluster_mapping: a dict containing a mapping from words occurring 
+		in the brown cluster file to their cluster codes.
+
+	Returns: A vector (or list) of the same length of cluster code list. Each
+		element in the output list takes the value of the number of times the 
+		corresponding cluster in cluster code list appeared in the given text
+		divided by the number of all words in the text.
+	"""
+	num_tokens = 0
+	elem_cnt_dict = defaultdict(int)
+	elem_name = "word"
+	start_tag, end_tag = "<"+elem_name+">", "</"+elem_name+">"
+	tag_len = len(start_tag)
+	unk_cluster = u'8888'
+	with codecs.open(xml_file_path, 'rU', 'utf-8') as f:
+		for line in f:
+			index_s, index_t = line.find(start_tag), line.find(end_tag)
+			if index_s < 0: continue
+			num_tokens += 1
+			text_elem = line[index_s+tag_len:index_t]
+			if text_elem in word_cluster_mapping:
+				cluster_id = word_cluster_mapping[text_elem]
+			else: cluster_id = unk_cluster
+			elem_cnt_dict[cluster_id] += 1
+	return [elem_cnt_dict[elem]*1.0/num_tokens for elem in cluster_code_list] 
 
 
-
-
-
+# 9.2 
 
 
 if __name__ == "__main__":
